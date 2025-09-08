@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
 interface Analysis {
   misperception: { type: string; title: string; content: string }
@@ -39,6 +41,132 @@ export default function Curveball() {
       resetReveal()
     }
   }, [])
+
+  // 重置功能：清空所有状态和缓存
+  function resetReport() {
+    // 清空分析结果
+    setAnalysis(null)
+    // 重置阶段
+    setPhase('idle')
+    // 重置显示状态
+    resetReveal()
+    // 清空输入
+    setJob('')
+    setMajor('')
+    // 清空浏览器缓存
+    if ('caches' in window) {
+      caches.keys().then(names => {
+        names.forEach(name => {
+          caches.delete(name)
+        })
+      })
+    }
+    // 清空localStorage
+    localStorage.clear()
+    // 清空sessionStorage
+    sessionStorage.clear()
+    // 重新加载页面以确保完全重置
+    window.location.reload()
+  }
+
+  // PDF生成功能
+  async function generatePDF() {
+    if (!analysis) return
+    
+    try {
+      // 创建一个临时的div来渲染PDF内容
+      const tempDiv = document.createElement('div')
+      tempDiv.style.position = 'absolute'
+      tempDiv.style.left = '-9999px'
+      tempDiv.style.width = '800px'
+      tempDiv.style.padding = '40px'
+      tempDiv.style.backgroundColor = 'white'
+      tempDiv.style.fontFamily = 'Arial, sans-serif'
+      
+      tempDiv.innerHTML = `
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #1f2937; font-size: 24px; margin-bottom: 10px;">职业可行性分析报告</h1>
+          <p style="color: #6b7280; font-size: 14px;">职业：${job} | 专业：${major}</p>
+          <p style="color: #6b7280; font-size: 12px;">生成时间：${new Date().toLocaleString('zh-CN')}</p>
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">1. 认知误区</h2>
+          <p style="margin-bottom: 8px;"><strong>类型：</strong>${analysis.misperception?.type || ''}</p>
+          <p style="margin-bottom: 8px;"><strong>标题：</strong>${analysis.misperception?.title || ''}</p>
+          <p style="line-height: 1.6;">${analysis.misperception?.content || ''}</p>
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">2. 职业本质</h2>
+          <p style="margin-bottom: 8px;"><strong>总结：</strong>${analysis.essence?.summary || ''}</p>
+          <p style="margin-bottom: 8px;"><strong>行业：</strong>${analysis.essence?.industry || ''}</p>
+          <p style="line-height: 1.6;"><strong>角色：</strong>${analysis.essence?.role || ''}</p>
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">3. 门槛匹配</h2>
+          <p style="margin-bottom: 8px;"><strong>水平：</strong>${analysis.threshold?.level || ''}</p>
+          <p style="margin-bottom: 8px;"><strong>匹配度：</strong>${analysis.threshold?.match || ''}</p>
+          <p style="line-height: 1.6;"><strong>路径：</strong>${analysis.threshold?.path?.join(', ') || ''}</p>
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">4. 技能要求</h2>
+          <p style="margin-bottom: 8px;"><strong>核心技能：</strong>${analysis.skills?.core?.join(', ') || ''}</p>
+          <p style="margin-bottom: 8px;"><strong>匹配度：</strong>${analysis.skills?.match || ''}</p>
+          <p style="line-height: 1.6;"><strong>实践建议：</strong>${analysis.skills?.practice?.join(', ') || ''}</p>
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">5. 体验动力</h2>
+          <p style="margin-bottom: 8px;"><strong>场景体验：</strong>${analysis.experience?.scene || ''}</p>
+          <p style="margin-bottom: 8px;"><strong>价值动力：</strong>${analysis.experience?.value || ''}</p>
+          <p style="line-height: 1.6;"><strong>适配性验证：</strong>${analysis.experience?.fit_test || ''}</p>
+        </div>
+        
+        <div style="margin-bottom: 25px;">
+          <h2 style="color: #1f2937; font-size: 18px; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">6. 可能性结论</h2>
+          <p style="margin-bottom: 8px;"><strong>可行性：</strong>${analysis.conclusion?.feasibility || ''}</p>
+          <p style="line-height: 1.6;"><strong>最优先行动：</strong>${analysis.conclusion?.priority_action || ''}</p>
+        </div>
+      `
+      
+      document.body.appendChild(tempDiv)
+      
+      // 使用html2canvas截图
+      const canvas = await html2canvas(tempDiv, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true
+      })
+      
+      // 移除临时div
+      document.body.removeChild(tempDiv)
+      
+      // 创建PDF
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const imgData = canvas.toDataURL('image/png')
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      const imgWidth = canvas.width
+      const imgHeight = canvas.height
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight)
+      const imgX = (pdfWidth - imgWidth * ratio) / 2
+      const imgY = 10
+      
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio)
+      
+      // 下载PDF
+      const fileName = `职业可行性分析报告_${job}_${new Date().toISOString().split('T')[0]}.pdf`
+      pdf.save(fileName)
+      
+    } catch (error) {
+      console.error('PDF生成失败:', error)
+      alert('PDF生成失败，请重试')
+    }
+  }
 
   async function getAnalysis() {
     const j = job.trim()
@@ -180,49 +308,47 @@ export default function Curveball() {
 
       const decoder = new TextDecoder('utf-8')
       let sseBuffer = ''
-      let ndjsonBuffer = ''
+      let fullContent = ''
       let receivedAnySection = false
 
-      function tryHandleNDJSONLines() {
-        let idx = ndjsonBuffer.indexOf('\n')
-        while (idx !== -1) {
-          const line = ndjsonBuffer.slice(0, idx).trim()
-          ndjsonBuffer = ndjsonBuffer.slice(idx + 1)
-          if (line) {
-            try {
-              const evt = JSON.parse(line)
-              if (evt && evt.section && evt.data) {
-                receivedAnySection = true
-                const section: string = String(evt.section)
-                const data = evt.data
-                setAnalysis((prev) => {
-                  const next = { ...(prev || {}) } as Partial<Analysis>
-                  if (section === 'misperception') next.misperception = data
-                  if (section === 'essence') next.essence = data
-                  if (section === 'threshold') next.threshold = data
-                  if (section === 'skills') next.skills = data
-                  if (section === 'experience') next.experience = data
-                  if (section === 'conclusion') next.conclusion = data
-                  return next
-                })
-                setShow((prev) => {
-                  const map: Record<string, keyof typeof prev> = {
-                    misperception: 'mis',
-                    essence: 'essence',
-                    threshold: 'threshold',
-                    skills: 'skills',
-                    experience: 'experience',
-                    conclusion: 'conclusion',
-                  }
-                  const key = map[section]
-                  return key ? { ...prev, [key]: true } : prev
-                })
-              }
-            } catch {
-              // 忽略解析失败的行，继续累积
+      function tryParseStreamContent(content: string) {
+        // 尝试解析NDJSON格式（自定义分段协议）
+        const lines = content.split('\n')
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            const evt = JSON.parse(trimmed)
+            if (evt && evt.section && evt.data) {
+              receivedAnySection = true
+              const section: string = String(evt.section)
+              const data = evt.data
+              setAnalysis((prev) => {
+                const next = { ...(prev || {}) } as Partial<Analysis>
+                if (section === 'misperception') next.misperception = data
+                if (section === 'essence') next.essence = data
+                if (section === 'threshold') next.threshold = data
+                if (section === 'skills') next.skills = data
+                if (section === 'experience') next.experience = data
+                if (section === 'conclusion') next.conclusion = data
+                return next
+              })
+              setShow((prev) => {
+                const map: Record<string, keyof typeof prev> = {
+                  misperception: 'mis',
+                  essence: 'essence',
+                  threshold: 'threshold',
+                  skills: 'skills',
+                  experience: 'experience',
+                  conclusion: 'conclusion',
+                }
+                const key = map[section]
+                return key ? { ...prev, [key]: true } : prev
+              })
             }
+          } catch {
+            // 忽略解析失败的行
           }
-          idx = ndjsonBuffer.indexOf('\n')
         }
       }
 
@@ -246,9 +372,10 @@ export default function Curveball() {
             const delta = payload?.choices?.[0]?.delta?.content
             const contentPiece = typeof delta === 'string' ? delta : (payload?.choices?.[0]?.message?.content ?? '')
             if (contentPiece) {
-              // 将模型生成的文本累计到 NDJSON 缓冲区
-              ndjsonBuffer += contentPiece
-              tryHandleNDJSONLines()
+              // 累积完整内容
+              fullContent += contentPiece
+              // 尝试解析分段内容
+              tryParseStreamContent(fullContent)
             }
           } catch {
             // 单行不是JSON（比如心跳），忽略
@@ -256,58 +383,25 @@ export default function Curveball() {
         }
       }
 
-      // 最后尝试处理余下的NDJSON缓存
-      tryHandleNDJSONLines()
-
-      // 额外处理：若最后一行没有换行但为合法JSON，按最后一段处理
-      const tail = ndjsonBuffer.trim()
-      if (tail) {
-        try {
-          const evt = JSON.parse(tail)
-          if (evt && evt.section && evt.data) {
-            const section: string = String(evt.section)
-            const data = evt.data
-            setAnalysis((prev) => {
-              const next = { ...(prev || {}) } as Partial<Analysis>
-              if (section === 'misperception') next.misperception = data
-              if (section === 'essence') next.essence = data
-              if (section === 'threshold') next.threshold = data
-              if (section === 'skills') next.skills = data
-              if (section === 'experience') next.experience = data
-              if (section === 'conclusion') next.conclusion = data
-              return next
-            })
-            setShow((prev) => {
-              const map: Record<string, keyof typeof prev> = {
-                misperception: 'mis',
-                essence: 'essence',
-                threshold: 'threshold',
-                skills: 'skills',
-                experience: 'experience',
-                conclusion: 'conclusion',
-              }
-              const key = map[section]
-              return key ? { ...prev, [key]: true } : prev
-            })
-            receivedAnySection = true
-          }
-        } catch {}
+      // 最后尝试处理完整内容
+      if (fullContent) {
+        tryParseStreamContent(fullContent)
       }
 
       // 若未按分段协议返回，尝试整体JSON回退
-      if (!receivedAnySection) {
-        // 把缓冲区残余尝试解析为完整JSON
+      if (!receivedAnySection && fullContent) {
         try {
-          const maybe = ndjsonBuffer.trim()
-          if (maybe.startsWith('{') && maybe.endsWith('}')) {
-            const obj = JSON.parse(maybe) as Analysis
+          const trimmed = fullContent.trim()
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            const obj = JSON.parse(trimmed) as Analysis
             setAnalysis(obj)
             setShow({ mis: true, essence: true, threshold: true, skills: true, experience: true, conclusion: true })
           } else {
             throw new Error('未收到分段内容，且无法解析为完整JSON')
           }
         } catch (e) {
-          throw new Error('模型未按NDJSON分段返回，且整体JSON解析失败。建议重试或切换为非流式模式。')
+          console.log('完整内容:', fullContent)
+          throw new Error(`模型未按NDJSON分段返回，且整体JSON解析失败。内容长度: ${fullContent.length}。建议重试或切换为非流式模式。`)
         }
       }
 
@@ -666,18 +760,23 @@ export default function Curveball() {
              <div className="mt-8 text-center space-y-4">
                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                  <button
-                   onClick={() => {
-                     if (job.trim() && major.trim()) {
-                       getAnalysis()
-                     }
-                   }}
-                   disabled={loading || !job.trim() || !major.trim()}
-                   className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+                   onClick={resetReport}
+                   className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 text-white font-medium rounded-lg hover:from-red-700 hover:to-pink-700 transition-all duration-200 shadow-lg hover:shadow-xl"
                  >
                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                    </svg>
                    重新生成报告
+                 </button>
+                 
+                 <button
+                   onClick={generatePDF}
+                   className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                 >
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                   </svg>
+                   导出PDF报告
                  </button>
                  
                  <button
@@ -699,7 +798,7 @@ export default function Curveball() {
                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                    </svg>
-                   下载报告
+                   下载TXT报告
                  </button>
                </div>
              </div>
