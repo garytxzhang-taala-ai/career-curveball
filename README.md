@@ -32,15 +32,36 @@ npm install
 ```
 
 ### 3. 配置环境变量
-复制 `.env.example` 到 `.env` 并填入你的Deepseek API密钥：
+复制 `.env.example` 到 `.env` 并配置API密钥：
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env` 文件：
+应用支持两种AI模型，可在界面中切换：
+
+#### 🌋 火山引擎配置（推荐）
+```env
+# 必填：API Key
+VITE_VOLCENGINE_API_KEY=your-volcengine-api-key-here
+
+# 二选一（推荐使用Endpoint ID）
+VITE_VOLCENGINE_ENDPOINT_ID=your-endpoint-id-here
+# 或者使用Model ID
+VITE_VOLCENGINE_MODEL=your-model-id-here
 ```
-VITE_OPENAI_API_KEY=your_deepseek_api_key_here
+
+#### 🤖 Deepseek配置
+```env
+# 必填：API Key
+VITE_OPENAI_API_KEY=your-deepseek-api-key-here
+
+# 可选：Base URL（默认为官方地址）
+VITE_OPENAI_BASE_URL=https://api.deepseek.com/v1
 ```
+
+**获取API密钥：**
+- 火山引擎：访问 [方舟控制台](https://console.volcengine.com/ark)
+- Deepseek：访问 [Deepseek平台](https://platform.deepseek.com/)
 
 ### 4. 启动开发服务器
 ```bash

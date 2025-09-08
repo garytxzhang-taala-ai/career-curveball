@@ -14,6 +14,7 @@ export default function Curveball() {
   const [major, setMajor] = useState('')
   const [analysis, setAnalysis] = useState<Partial<Analysis> | null>(null)
   const [loading, setLoading] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<'volcengine' | 'deepseek'>('volcengine')
 
   // 渐进展示控制
   const [phase, setPhase] = useState<'idle' | 'validating' | 'requesting' | 'streaming' | 'rendering' | 'done'>('idle')
@@ -49,20 +50,40 @@ export default function Curveball() {
       return
     }
 
-    const apiKey = import.meta.env.VITE_VOLCENGINE_API_KEY
-    if (!apiKey) {
-      alert('未检测到火山引擎 API Key。请在 .env 中配置 VITE_VOLCENGINE_API_KEY。')
-      setPhase('idle')
-      return
-    }
+    // 根据选择的模型获取对应的API配置
+    let apiKey: string
+    let apiUrl: string
+    let modelParam: string
 
-    const endpointId = import.meta.env.VITE_VOLCENGINE_ENDPOINT_ID as string | undefined
-    const modelId = import.meta.env.VITE_VOLCENGINE_MODEL as string | undefined
-    const modelParam = endpointId || modelId
-    if (!modelParam) {
-      alert('未设置模型标识。请在 .env 中配置 VITE_VOLCENGINE_MODEL（Model ID）或 VITE_VOLCENGINE_ENDPOINT_ID（Endpoint ID）。')
-      setPhase('idle')
-      return
+    if (selectedModel === 'volcengine') {
+      apiKey = import.meta.env.VITE_VOLCENGINE_API_KEY
+      if (!apiKey) {
+        alert('未检测到火山引擎 API Key。请在 .env 中配置 VITE_VOLCENGINE_API_KEY。')
+        setPhase('idle')
+        return
+      }
+      
+      const endpointId = import.meta.env.VITE_VOLCENGINE_ENDPOINT_ID as string | undefined
+      const modelId = import.meta.env.VITE_VOLCENGINE_MODEL as string | undefined
+      modelParam = endpointId || modelId || ''
+      if (!modelParam) {
+        alert('未设置火山引擎模型标识。请在 .env 中配置 VITE_VOLCENGINE_MODEL（Model ID）或 VITE_VOLCENGINE_ENDPOINT_ID（Endpoint ID）。')
+        setPhase('idle')
+        return
+      }
+      apiUrl = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
+    } else {
+      // Deepseek配置
+      apiKey = import.meta.env.VITE_OPENAI_API_KEY
+      if (!apiKey) {
+        alert('未检测到 Deepseek API Key。请在 .env 中配置 VITE_OPENAI_API_KEY。')
+        setPhase('idle')
+        return
+      }
+      
+      const baseUrl = import.meta.env.VITE_OPENAI_BASE_URL || 'https://api.deepseek.com/v1'
+      apiUrl = `${baseUrl}/chat/completions`
+      modelParam = 'deepseek-chat' // Deepseek的默认模型
     }
 
     // 重置 UI 状态
@@ -77,7 +98,9 @@ export default function Curveball() {
     const userPrompt = `背景：用户输入的目标职业与当前专业如下\n- 目标职业：${j}\n- 当前专业：${m}\n\n目标：基于「行业领域→专业门槛→通用能力→体验动力」四维度模型，输出具象、可落地的职业分析。\n\n各段的数据结构示例（请直接用真实内容替换占位文本）：\n1) misperception: {"type":"误区","title":"专业 ≠ 职业","content":"一句话认知冲击"}\n2) essence: {"summary":"一句话总结","industry":"所属行业","role":"具体角色说明（举例）"}\n3) threshold: {"level":"高/中/低 + 理由","match":"与当前专业的匹配与短板","path":["补门槛路径-1（可包含读研/读博/转专业）","补门槛路径-2（明确成本/收益/替代方案）"]}\n4) skills: {"core":["能力-1（配场景）","能力-2（配场景）"],"match":"当前专业已有能力的匹配点","practice":["小练习-1","小练习-2"]}\n5) experience: {"scene":"空间/协作/节奏的具象描述","value":"价值动力（成长/利他/收益/创造）","fit_test":"低成本自测行动"}\n6) conclusion: {"feasibility":"可行性总结（可提示是否建议读研/转专业）","priority_action":"最优先级行动建议"}\n\n特别要求：在 threshold.path 中务必额外包含“读研/读博/跨专业/转专业”的可行性、优缺点、时间/金钱成本，并与自学/实习路线做对比。按 NDJSON 顺序逐行输出。`
 
     try {
-      const res = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+      console.log('正在请求API:', { model: selectedModel, url: apiUrl, modelParam })
+      
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -101,10 +124,26 @@ export default function Curveball() {
           const json = await res.json()
           msg = (json && (json.error?.message || json.message)) || msg
         } catch {}
-        if (res.status === 404 && /not activated the model/i.test(String(msg))) {
-          throw new Error(`该模型未在您的账号开通。请在方舟控制台开通该模型，或在 .env 中切换为已开通的模型（VITE_VOLCENGINE_MODEL），或使用已创建的 Endpoint ID（VITE_VOLCENGINE_ENDPOINT_ID）。原始信息：${msg}`)
+        
+        // 根据不同API提供针对性的错误信息
+        if (selectedModel === 'volcengine') {
+          if (res.status === 404 && /not activated the model/i.test(String(msg))) {
+            throw new Error(`该模型未在您的账号开通。请在方舟控制台开通该模型，或在 .env 中切换为已开通的模型（VITE_VOLCENGINE_MODEL），或使用已创建的 Endpoint ID（VITE_VOLCENGINE_ENDPOINT_ID）。原始信息：${msg}`)
+          }
+          if (res.status === 401) {
+            throw new Error(`火山引擎API认证失败，请检查VITE_VOLCENGINE_API_KEY是否正确。原始信息：${msg}`)
+          }
+        } else {
+          // Deepseek错误处理
+          if (res.status === 401) {
+            throw new Error(`Deepseek API认证失败，请检查VITE_OPENAI_API_KEY是否正确。原始信息：${msg}`)
+          }
+          if (res.status === 429) {
+            throw new Error(`Deepseek API请求频率超限，请稍后重试。原始信息：${msg}`)
+          }
         }
-        throw new Error(`API请求失败 (${res.status}): ${msg}`)
+        
+        throw new Error(`${selectedModel === 'volcengine' ? '火山引擎' : 'Deepseek'} API请求失败 (${res.status}): ${msg}`)
       }
 
       // 开始流式解析
@@ -113,7 +152,7 @@ export default function Curveball() {
       if (!reader) {
         // 回退：不支持流式时，改为一次性请求
         setPhase('requesting')
-        const fallback = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
+        const fallback = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
@@ -276,7 +315,21 @@ export default function Curveball() {
     } catch (error) {
       console.error('详细错误信息:', error)
       const errorMessage = error instanceof Error ? error.message : '未知错误'
-      alert(`生成失败: ${errorMessage}\n\n可能的原因:\n1. 火山引擎 API Key 未配置或无效\n2. 未开通对应模型或未配置正确的模型/Endpoint\n3. 网络连接问题\n4. 服务暂时不可用或 API 配额限制`)
+      
+      // 针对不同错误类型提供更具体的解决方案
+      let detailedMessage = `生成失败: ${errorMessage}\n\n`
+      
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('fetch')) {
+        if (selectedModel === 'deepseek') {
+          detailedMessage += `网络请求失败，可能的原因:\n1. Deepseek API服务暂时不可用\n2. 网络连接问题或防火墙阻止\n3. API Key无效或已过期\n4. CORS跨域问题\n\n建议解决方案:\n• 检查网络连接\n• 验证API Key是否正确\n• 尝试切换到火山引擎模型\n• 稍后重试`
+        } else {
+          detailedMessage += `网络请求失败，可能的原因:\n1. 火山引擎API服务暂时不可用\n2. 网络连接问题\n3. API Key无效\n4. 模型未开通\n\n建议解决方案:\n• 检查网络连接\n• 验证API配置\n• 尝试切换到Deepseek模型`
+        }
+      } else {
+        detailedMessage += `其他可能原因:\n1. API Key 未配置或无效\n2. 模型未开通或配置错误\n3. 请求频率超限\n4. 服务暂时不可用`
+      }
+      
+      alert(detailedMessage)
       setPhase('idle')
     } finally {
       setLoading(false)
@@ -343,7 +396,33 @@ export default function Curveball() {
     <div className="max-w-2xl mx-auto p-6 space-y-4">
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">职业分析器</h1>
-        <p className="text-gray-600">分别输入“职业”和“专业”，获取一份具象、可落地的职业分析</p>
+        <p className="text-gray-600">分别输入"职业"和"专业"，获取一份具象、可落地的职业分析</p>
+      </div>
+
+      {/* 模型选择器 */}
+      <div className="flex justify-center mb-6">
+        <div className="bg-gray-100 p-1 rounded-lg flex gap-1">
+          <button
+            onClick={() => setSelectedModel('volcengine')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              selectedModel === 'volcengine'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            🌋 火山引擎
+          </button>
+          <button
+            onClick={() => setSelectedModel('deepseek')}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              selectedModel === 'deepseek'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            🤖 Deepseek
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">
@@ -581,13 +660,57 @@ export default function Curveball() {
           ) : (
             <SkeletonCard lines={2} />
           )}
+          
+          {/* 操作按钮 */}
+           {analysis && (
+             <div className="mt-8 text-center space-y-4">
+               <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                 <button
+                   onClick={() => {
+                     if (job.trim() && major.trim()) {
+                       getAnalysis()
+                     }
+                   }}
+                   disabled={loading || !job.trim() || !major.trim()}
+                   className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+                 >
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                   </svg>
+                   重新生成报告
+                 </button>
+                 
+                 <button
+                   onClick={() => {
+                      const reportContent = `职业可行性分析报告\n\n职业：${job}\n专业：${major}\n生成时间：${new Date().toLocaleString('zh-CN')}\n\n=== 分析结果 ===\n\n1. 认知误区\n类型：${analysis.misperception?.type || ''}\n标题：${analysis.misperception?.title || ''}\n内容：${analysis.misperception?.content || ''}\n\n2. 职业本质\n总结：${analysis.essence?.summary || ''}\n行业：${analysis.essence?.industry || ''}\n角色：${analysis.essence?.role || ''}\n\n3. 门槛匹配\n水平：${analysis.threshold?.level || ''}\n匹配度：${analysis.threshold?.match || ''}\n路径：${analysis.threshold?.path?.join(', ') || ''}\n\n4. 技能要求\n核心技能：${analysis.skills?.core?.join(', ') || ''}\n匹配度：${analysis.skills?.match || ''}\n实践建议：${analysis.skills?.practice?.join(', ') || ''}\n\n5. 体验动力\n场景体验：${analysis.experience?.scene || ''}\n价值动力：${analysis.experience?.value || ''}\n适配性验证：${analysis.experience?.fit_test || ''}\n\n6. 可能性结论\n可行性：${analysis.conclusion?.feasibility || ''}\n最优先行动：${analysis.conclusion?.priority_action || ''}`
+                     
+                     const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' })
+                     const url = URL.createObjectURL(blob)
+                     const link = document.createElement('a')
+                     link.href = url
+                     link.download = `职业可行性分析报告_${job}_${new Date().toISOString().split('T')[0]}.txt`
+                     document.body.appendChild(link)
+                     link.click()
+                     document.body.removeChild(link)
+                     URL.revokeObjectURL(url)
+                   }}
+                   className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-medium rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                 >
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                   </svg>
+                   下载报告
+                 </button>
+               </div>
+             </div>
+           )}
         </div>
       )}
 
       {!analysis && !loading && (
         <div className="text-center py-12">
           <div className="text-gray-400 text-lg mb-2">🎯</div>
-          <p className="text-gray-500">分别输入“职业”和“专业”，开始分析你的可行路径</p>
+          <p className="text-gray-500">分别输入"职业"和"专业"，开始分析你的可行路径</p>
         </div>
       )}
     </div>
